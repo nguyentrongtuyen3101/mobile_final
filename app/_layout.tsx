@@ -5,6 +5,7 @@ import SplashScreen from '@/components/SplashScreen';
 import { CartProvider } from './contexts/CartContext';
 import { FavouriteProvider } from './contexts/FavouriteContext';
 import { UserProvider } from './contexts/UserContext';
+import { OrderProvider } from './contexts/OrderContext';
 
 export default function Layout() {
   const [isFirstLaunch, setIsFirstLaunch] = useState<boolean | null>(null);
@@ -77,6 +78,7 @@ export default function Layout() {
       <UserProvider>
         <CartProvider>
           <FavouriteProvider>
+             <OrderProvider>
             <Stack screenOptions={{ headerShown: false }}>
               <Stack.Screen name="(tabs)" />
               <Stack.Screen name="login" />
@@ -86,6 +88,7 @@ export default function Layout() {
               <Stack.Screen name="mycart" options={{ title: 'My Cart' }} />
               <Stack.Screen name="onboarding" />
             </Stack>
+            </OrderProvider>
           </FavouriteProvider>
         </CartProvider>
       </UserProvider>
@@ -97,6 +100,7 @@ export default function Layout() {
     <UserProvider>
       <CartProvider>
         <FavouriteProvider>
+          <OrderProvider>
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="login" />
@@ -106,6 +110,7 @@ export default function Layout() {
             <Stack.Screen name="mycart" options={{ title: 'My Cart' }} />
             <Stack.Screen name="onboarding" />
           </Stack>
+          </OrderProvider>
         </FavouriteProvider>
       </CartProvider>
     </UserProvider>

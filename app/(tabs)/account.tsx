@@ -57,6 +57,7 @@ interface CustomerInfo {
   address: string;
   dateOfBirth: string;
   gender: string;
+  phone: string; // Thêm trường phone
   profilePicture?: string;
 }
 
@@ -78,6 +79,7 @@ const ProfileScreen: React.FC = () => {
         address: user.diachi || 'Unknown',
         dateOfBirth: user.sinhnhat || 'Unknown',
         gender: convertGender(user.gioitinh),
+        phone: user.sdt || 'Unknown', // Thêm phone từ user.sdt
         profilePicture: user.duongDanAnh ? `http://${IP_ADDRESS}:8080${user.duongDanAnh}` : 'https://via.placeholder.com/64',
       }
     : {
@@ -86,6 +88,7 @@ const ProfileScreen: React.FC = () => {
         address: 'Unknown',
         dateOfBirth: 'Unknown',
         gender: 'Other',
+        phone: 'Unknown', // Khởi tạo phone
         profilePicture: 'https://via.placeholder.com/64',
       };
 
@@ -113,6 +116,7 @@ const ProfileScreen: React.FC = () => {
               address: userData.diachi || 'Unknown',
               dateOfBirth: userData.sinhnhat || 'Unknown',
               gender: convertGender(userData.gioitinh),
+              phone: userData.sdt || 'Unknown', // Cập nhật phone từ userData
               profilePicture: userData.duongDanAnh ? `http://${IP_ADDRESS}:8080${userData.duongDanAnh}` : 'https://i.pinimg.com/736x/5c/7b/72/5c7b72122673157a8e8bd019efaf0957.jpg',
             };
             console.log('Updated profilePicture:', updatedInfo.profilePicture); // Log để kiểm tra
@@ -135,6 +139,7 @@ const ProfileScreen: React.FC = () => {
   const validateName = (name: string) => /^[a-zA-ZÀ-ỹ\s'-]{2,50}$/.test(name);
   const validateAddress = (address: string) => /^.{5,100}$/.test(address);
   const validateDateOfBirth = (date: string) => /^\d{4}-\d{2}-\d{2}$/.test(date);
+  const validatePhone = (phone: string) => /^(?:\+84|0)\d{9}$/.test(phone);
 
   // Đăng xuất
   const handleLogout = async () => {
@@ -337,6 +342,10 @@ const ProfileScreen: React.FC = () => {
       setErrors((prev) => ({ ...prev, dateOfBirth: 'Ngày sinh không hợp lệ' }));
       return;
     }
+    if (tempInfo.phone && !validatePhone(tempInfo.phone)) {
+      setErrors((prev) => ({ ...prev, phone: 'Số điện thoại không hợp lệ' }));
+      return;
+    }
 
     const payload = {
       gmail: tempInfo.email,
@@ -344,6 +353,7 @@ const ProfileScreen: React.FC = () => {
       diachi: tempInfo.address,
       sinhnhat: tempInfo.dateOfBirth,
       sex: tempInfo.gender === 'Male' ? true : tempInfo.gender === 'Female' ? false : undefined,
+      sdt: tempInfo.phone, // Thêm sdt vào payload
       duongDanAnh: tempInfo.profilePicture,
     };
 
@@ -433,6 +443,27 @@ const ProfileScreen: React.FC = () => {
 
         <View style={styles.infoItem}>
           <View style={styles.infoRow}>
+            <FontAwesome5 name="phone" size={24} color="#EC870E" />
+            <Text style={styles.infoLabel}>Số điện thoại</Text>
+          </View>
+          {isEditing ? (
+            <View>
+              <TextInput
+                style={styles.infoInput}
+                value={tempInfo.phone}
+                onChangeText={(text) => handleInputChange('phone', text)}
+                keyboardType="phone-pad"
+                placeholder="+84xxxxxxxxx"
+              />
+              {errors.phone && <Text style={styles.errorText}>{errors.phone}</Text>}
+            </View>
+          ) : (
+            <Text style={styles.infoText}>{customerInfo.phone}</Text>
+          )}
+        </View>
+
+        <View style={styles.infoItem}>
+          <View style={styles.infoRow}>
             <FontAwesome5 name="home" size={24} color="#EC870E" />
             <Text style={styles.infoLabel}>Địa chỉ</Text>
           </View>
@@ -505,6 +536,7 @@ const ProfileScreen: React.FC = () => {
     </View>
   );
 };
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -574,15 +606,16 @@ const styles = StyleSheet.create({
     borderWidth: 1, // Đóng khung
     borderColor: '#000',
     borderRadius: 12, // Bo góc khung
-    padding: 15,
+    padding: 5,
     marginBottom: 15,
     elevation: 3, // Đổ bóng (Android)
     shadowColor: '#000', // Đổ bóng (iOS)
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
-    borderBottomWidth:4,
-    borderRightWidth:4,
+    borderBottomWidth: 4,
+    borderRightWidth: 4,
+    height:80,
   },
   infoRow: {
     flexDirection: 'row',
@@ -590,7 +623,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   infoLabel: {
-    fontSize: 25, // Tăng kích thước font chữ tiêu đề
+    fontSize: 20, // Tăng kích thước font chữ tiêu đề
     fontWeight: '600',
     color: '#211551',
     marginLeft: 12,
@@ -632,10 +665,10 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
-    borderColor:'#000',
-    borderWidth:1,
-    borderBottomWidth:4,
-    borderRightWidth:4,
+    borderColor: '#000',
+    borderWidth: 1,
+    borderBottomWidth: 4,
+    borderRightWidth: 4,
   },
   editButtonText: {
     color: 'white',
@@ -656,10 +689,10 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
-    borderColor:'#000',
-    borderWidth:1,
-    borderBottomWidth:4,
-    borderRightWidth:4,
+    borderColor: '#000',
+    borderWidth: 1,
+    borderBottomWidth: 4,
+    borderRightWidth: 4,
   },
   logoutText: {
     marginLeft: 12,

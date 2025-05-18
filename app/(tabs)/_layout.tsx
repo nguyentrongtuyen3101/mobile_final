@@ -80,7 +80,19 @@ export default function TabLayout() {
           }}
         />
 
-        {/* Tab thứ năm - Tài khoản (Account) */}
+         {/* Tab 5 - Orders (Đã di chuyển xuống đây) */}
+      <Tabs.Screen
+        name="order-tracking"
+        options={{
+          title: 'Orders',
+          headerShown: false,
+          tabBarIcon: ({ color, size }) => (
+            <FontAwesome name="shopping-cart" size={size} color={color} />
+          ),
+        }}
+      />
+
+        {/* Tab thứ 6 - Tài khoản (Account) */}
         <Tabs.Screen
           name="account"
           options={{

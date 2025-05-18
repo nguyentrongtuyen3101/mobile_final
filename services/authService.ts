@@ -11,6 +11,7 @@ export interface User_model {
   gioitinh: boolean | undefined;
   sinhnhat: string;
   duongDanAnh: string | undefined;
+  sdt:string;
   token?: string;
 }
 
@@ -43,6 +44,7 @@ export const login = async (email: string, password: string): Promise<User_model
       gioitinh: data.gioitinh,
       sinhnhat: data.sinhnhat || '',
       duongDanAnh: data.duongDanAnh,
+      sdt:data.sdt ||'',
       token: data.token,
     };
 
@@ -87,6 +89,7 @@ export const register = async (hoTen: string, gmail: string, matKhau: string): P
       gioitinh: data.gioitinh,
       sinhnhat: data.sinhnhat || '',
       duongDanAnh: data.duongDanAnh,
+      sdt:data.sdt ||'',
       token: data.token,
     };
 
@@ -160,6 +163,7 @@ export const updateAccountuser = async (payload: {
   diachi: string;
   sinhnhat: string;
   sex?: boolean | undefined;
+  sdt?: string; // Thêm sdt vào payload
   duongDanAnh?: string;
 }): Promise<User_model | null> => {
   const token = await AsyncStorage.getItem('authToken');
@@ -189,6 +193,7 @@ export const updateAccountuser = async (payload: {
       gioitinh: data.gioitinh,
       sinhnhat: data.sinhnhat || '',
       duongDanAnh: data.duongDanAnh,
+      sdt: data.sdt || '', // Cập nhật sdt từ response
       token: token,
     };
 
@@ -257,6 +262,7 @@ export const uploadProfilePicture = async (
       gioitinh: data.gioitinh,
       sinhnhat: data.sinhnhat || '',
       duongDanAnh: data.duongDanAnh,
+      sdt:data.sdt ||'',
       token: token,
     };
 
@@ -305,6 +311,7 @@ export const showAccount = async (): Promise<User_model | null> => {
       gioitinh: data.gioitinh,
       sinhnhat: data.sinhnhat || '',
       duongDanAnh: data.duongDanAnh,
+      sdt:data.sdt ||'',
       token: token,
     };
 

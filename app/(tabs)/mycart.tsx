@@ -1,4 +1,4 @@
-
+// mycart.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -27,6 +27,13 @@ interface CartItem {
   price: string;
   image: any;
   quantity: number;
+}
+
+// Định nghĩa kiểu cho thông tin khách hàng từ ProfileScreen
+interface CustomerInfo {
+  name: string;
+  phone: string;
+  address: string;
 }
 
 // Định nghĩa props cho CartItem component
@@ -147,6 +154,18 @@ const App = () => {
     fetchCartItems();
   }, [user, setCartItems]);
 
+  const [customerInfo, setCustomerInfo] = useState<CustomerInfo>({
+    name: 'Afsar Hossen',
+    phone: '+123 456 7890',
+    address: '123 Main Street, City, Country',
+  });
+
+  const [recipientInfo, setRecipientInfo] = useState<CustomerInfo>({
+    name: customerInfo.name,
+    phone: customerInfo.phone,
+    address: customerInfo.address,
+  });
+
   const [deliveryMethod, setDeliveryMethod] = useState('Standard Delivery');
   const [paymentMethod, setPaymentMethod] = useState('Credit Card');
   const [promoCode, setPromoCode] = useState('');
@@ -154,10 +173,12 @@ const App = () => {
   const [paymentStatus, setPaymentStatus] = useState<'pending' | 'success' | 'failed'>('pending');
   const [showError, setShowError] = useState(false);
 
-  const totalCost = cartItems.reduce((total, item) => {
-    const price = parseFloat(item.price.replace('$', '')) * item.quantity;
-    return total + price;
-  }, 0) - discount;
+  const totalCost = cartItems
+    .filter((item) => checkedItems.has(item.id))
+    .reduce((total, item) => {
+      const price = parseFloat(item.price.replace('$', '')) * item.quantity;
+      return total + price;
+    }, 0) - discount;
 
   const handleUpdateQuantity = async (id: number, newQuantity: number) => {
     if (newQuantity < 1) return;
@@ -252,9 +273,18 @@ const App = () => {
   };
 
   const handlePayment = () => {
+    if (checkedItems.size === 0) {
+      Alert.alert('Error', 'Please select at least one item to checkout.');
+      return;
+    }
+    if (!recipientInfo.name || !recipientInfo.phone || !recipientInfo.address) {
+      Alert.alert('Error', 'Please fill in all recipient information.');
+      return;
+    }
     const isSuccess = Math.random() > 0.5;
     if (isSuccess) {
       setPaymentStatus('success');
+      // TODO: Thêm logic lưu order nếu cần
       router.push('/orderaccept');
     } else {
       setPaymentStatus('failed');
@@ -265,6 +295,10 @@ const App = () => {
   const handleTryAgain = () => {
     setShowError(false);
     setPaymentStatus('pending');
+  };
+
+  const handleRecipientInputChange = (field: keyof CustomerInfo, value: string) => {
+    setRecipientInfo((prev) => ({ ...prev, [field]: value }));
   };
 
   return (
@@ -426,23 +460,42 @@ const App = () => {
 
               <ScrollView style={styles.content}>
                 <View style={styles.row}>
-                  <Text style={styles.label}>Delivery</Text>
-                  <TouchableOpacity
-                    style={styles.rowEnd}
-                    onPress={() =>
-                      setDeliveryMethod(
-                        deliveryMethod === 'Standard Delivery' ? 'Express Delivery' : 'Standard Delivery'
-                      )
-                    }
+                  <Text style={styles.label}>Recipient Name</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={recipientInfo.name}
+                    onChangeText={(text) => handleRecipientInputChange('name', text)}
+                    placeholder="Enter recipient name"
                     accessible={true}
-                    accessibilityLabel="Change delivery method"
-                    accessibilityHint="Double tap to switch between standard and express delivery"
-                  >
-                    <Text style={styles.value}>{deliveryMethod}</Text>
-                    <FontAwesome name="angle-right" size={20} color="gray" />
-                  </TouchableOpacity>
+                    accessibilityLabel="Enter recipient name"
+                    accessibilityHint="Enter the recipient's name"
+                  />
                 </View>
-
+                <View style={styles.row}>
+                  <Text style={styles.label}>Phone Number</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={recipientInfo.phone}
+                    onChangeText={(text) => handleRecipientInputChange('phone', text)}
+                    placeholder="Enter phone number"
+                    keyboardType="phone-pad"
+                    accessible={true}
+                    accessibilityLabel="Enter phone number"
+                    accessibilityHint="Enter the recipient's phone number"
+                  />
+                </View>
+                <View style={styles.row}>
+                  <Text style={styles.label}>Address</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={recipientInfo.address}
+                    onChangeText={(text) => handleRecipientInputChange('address', text)}
+                    placeholder="Enter address"
+                    accessible={true}
+                    accessibilityLabel="Enter address"
+                    accessibilityHint="Enter the recipient's address"
+                  />
+                </View>
                 <View style={styles.row}>
                   <Text style={styles.label}>Payment</Text>
                   <TouchableOpacity
@@ -458,7 +511,6 @@ const App = () => {
                     <FontAwesome name="angle-right" size={20} color="gray" />
                   </TouchableOpacity>
                 </View>
-
                 <View style={styles.row}>
                   <Text style={styles.label}>Promo Code</Text>
                   <View style={styles.rowEnd}>
@@ -481,11 +533,9 @@ const App = () => {
                     </TouchableOpacity>
                   </View>
                 </View>
-
                 <View style={styles.row}>
                   <Text style={styles.label}>Total Cost</Text>
                   <Text style={styles.cost}>${totalCost.toFixed(2)}</Text>
-                  <FontAwesome name="angle-right" size={20} color="gray" />
                 </View>
               </ScrollView>
 
@@ -569,7 +619,7 @@ const styles = StyleSheet.create({
   selectAllContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    zIndex:100,
+    zIndex: 100,
   },
   selectAllText: {
     fontSize: 16,
@@ -757,6 +807,7 @@ const styles = StyleSheet.create({
   label: {
     color: '#6b7280',
     fontSize: 16,
+    width: 120,
   },
   rowEnd: {
     flexDirection: 'row',
@@ -773,8 +824,8 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     borderRadius: 5,
     fontSize: 14,
-    width: 120,
-    marginRight: 10,
+    flex: 1,
+    marginLeft: 10,
   },
   applyText: {
     color: '#10b981',
