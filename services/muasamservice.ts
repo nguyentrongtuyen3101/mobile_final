@@ -35,7 +35,7 @@ interface ErrorResponse {
 }
 
 // Định nghĩa kiểu dữ liệu CartItem cho client
-interface CartItem {
+export interface CartItem {
   id: number; // ID của giỏ hàng
   sanPhamId: number; // Thêm sanPhamId để sử dụng khi chuyển hướng
   title: string;

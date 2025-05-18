@@ -1,13 +1,13 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
-
-interface CartItem {
+import { CartItem } from '../../services/muasamservice'; // Import CartItem
+/*interface CartItem {
     id: number;
     title: string;
     subtitle: string;
     price: string;
     image: any;
     quantity: number;
-}
+}*/
 
 interface CartContextValue {
     cartItems: CartItem[];

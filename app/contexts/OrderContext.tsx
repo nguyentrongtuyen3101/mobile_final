@@ -1,88 +1,102 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, ReactNode } from 'react';
+import * as orderService from '../../services/orderService';
 
-interface CartItem {
-    title: string;
-    subtitle: string;
-    price: string;
-    image: any;
-    quantity: number;
+// Định nghĩa các interface (phải khớp với orderService.ts)
+export interface Order {
+  id?: number;
+  idAccount: number;
+  hoTen: string;
+  sdt?: string;
+  diachigiaohang: string;
+  phuongthucthanhtoan: boolean;
+  tongtien: number;
+  status?: number;
 }
 
-interface Order {
-    id: string;
-    items: CartItem[];
-    placementDate: Date;
-    status: 'Preparing Order' | 'Order Shipped' | 'Delivered' | 'Canceled';
-    recipientInfo?: {
-        name: string;
-        phone: string;
-        address: string;
-    };
-    deliveryMethod?: string;
-    paymentMethod?: string;
-    totalCost?: number;
+export interface OrderDetail {
+  id?: number;
+  idOrder: number;
+  idSanpham: number;
+  soluong: number;
+  giatien: number;
+  tongtiensanpham: number;
+}
+
+export interface Discount {
+  id?: number;
+  idAccount: number;
+  maKhuyenMai: string;
+  giaTien: number;
 }
 
 interface OrderContextType {
-    orders: Order[];
-    addOrder: (order: Order) => void;
-    removeOrder: (orderId: string) => void;
-    updateOrderStatus: (orderId: string, status: Order['status']) => void;
+  currentOrder: Order | null;
+  orderDetails: OrderDetail[];
+  discount: Discount | null;
+  setCurrentOrder: (order: Order | null) => void;
+  setOrderDetails: (details: OrderDetail[]) => void;
+  setDiscount: (discount: Discount | null) => void;
+  addOrder: (orderData: { order: Order; orderDetails: OrderDetail[] }) => Promise<void>;
+  findDiscount: (discountCode: string) => Promise<void>;
+  error: string | null;
+  setError: (error: string | null) => void;
 }
 
 const OrderContext = createContext<OrderContextType | undefined>(undefined);
 
-export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [orders, setOrders] = useState<Order[]>([]);
+export const OrderProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const [currentOrder, setCurrentOrder] = useState<Order | null>(null);
+  const [orderDetails, setOrderDetails] = useState<OrderDetail[]>([]);
+  const [discount, setDiscount] = useState<Discount | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-    const addOrder = (order: Order) => {
-        setOrders(prev => [...prev, order]);
-    };
-
-    const removeOrder = (orderId: string) => {
-        setOrders(prev =>
-            prev.map(order =>
-                order.id === orderId ? { ...order, status: 'Canceled' } : order
-            )
-        );
-    };
-
-    const updateOrderStatus = (orderId: string, status: Order['status']) => {
-        setOrders(prev =>
-            prev.map(order =>
-                order.id === orderId ? { ...order, status } : order
-            )
-        );
-    };
-
-    // Mock timer to simulate status changes (for testing)
-    useEffect(() => {
-        const timer = setInterval(() => {
-            setOrders(prev =>
-                prev.map(order => {
-                    if (order.status === 'Preparing Order' && Math.random() > 0.8) {
-                        return { ...order, status: 'Order Shipped' };
-                    } else if (order.status === 'Order Shipped' && Math.random() > 0.8) {
-                        return { ...order, status: 'Delivered' };
-                    }
-                    return order;
-                })
-            );
-        }, 30000); // Check every 30 seconds
-        return () => clearInterval(timer);
-    }, []);
-
-    return (
-        <OrderContext.Provider value={{ orders, addOrder, removeOrder, updateOrderStatus }}>
-            {children}
-        </OrderContext.Provider>
-    );
+  return (
+    <OrderContext.Provider
+      value={{
+        currentOrder,
+        orderDetails,
+        discount,
+        setCurrentOrder,
+        setOrderDetails,
+        setDiscount,
+        addOrder: async (orderData: { order: Order; orderDetails: OrderDetail[] }) => {
+          try {
+            // Gọi API để tạo đơn hàng
+            await orderService.addOrder(orderData);
+            // API trả về orderId trong response, nhưng không trả về toàn bộ Order object
+            // Vì vậy, ta sẽ cập nhật orderData.order với id từ response nếu cần
+            setCurrentOrder({
+              ...orderData.order,
+              id: undefined, // API không trả về id trong trường hợp này, để undefined
+            });
+            setOrderDetails(orderData.orderDetails);
+            setError(null);
+          } catch (err) {
+            setError(err instanceof Error ? err.message : 'Lỗi khi tạo đơn hàng');
+          }
+        },
+        findDiscount: async (discountCode: string) => {
+          try {
+            const discountResult = await orderService.findDiscount(discountCode);
+            setDiscount(discountResult);
+            setError(null);
+          } catch (err) {
+            setError(err instanceof Error ? err.message : 'Lỗi khi tìm mã giảm giá');
+          }
+        },
+        error,
+        setError,
+      }}
+    >
+      {children}
+    </OrderContext.Provider>
+  );
 };
 
-export const useOrder = () => {
-    const context = useContext(OrderContext);
-    if (!context) {
-        throw new Error('useOrder must be used within an OrderProvider');
-    }
-    return context;
+export const useOrder = (): OrderContextType => {
+  const context = useContext(OrderContext);
+  if (!context) {
+    throw new Error('useOrder must be used within an OrderProvider');
+  }
+  return context;
 };
