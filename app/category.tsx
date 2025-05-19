@@ -101,6 +101,7 @@ const CategoryScreen = () => {
         const productData = {
           id: product.id,
           title: product.tenSanPham,
+          sanPhamId: product.id, // Thêm sanPhamId để khớp với kiểu CartItem
           subtitle: `${product.soLuong} ${product.donVi}`,
           price: `$${product.giaTien}`,
           image: { uri: `${baseurl}${product.duongDanAnh}` },

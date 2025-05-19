@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -17,17 +16,8 @@ import { useRouter } from 'expo-router';
 import { useCart } from '../contexts/CartContext';
 import { useUser } from '../contexts/UserContext';
 import { useFavourites, FavouriteItem } from '../contexts/FavouriteContext';
-import { showyeuthich, xoayeuthich, addToCart } from '../../services/muasamservice'; // Thêm import addToCart
+import { showyeuthich, xoayeuthich, addToCart,CartItem } from '../../services/muasamservice';
 import baseurl from '../../baseurl';
-
-interface CartItem {
-  id: number;
-  title: string;
-  subtitle: string;
-  price: string;
-  image: any;
-  quantity: number;
-}
 
 interface FavouriteItemProps {
   item: FavouriteItem;
@@ -80,7 +70,7 @@ const FavouriteItemComponent: React.FC<FavouriteItemProps> = ({ item, onRemove, 
 
 const FavouriteScreen = () => {
   const { user } = useUser();
-  const { addToCart: addToCartContext } = useCart(); // Đổi tên để tránh xung đột
+  const { addToCart: addToCartContext } = useCart();
   const { favouriteItems: contextItems, addToFavourites } = useFavourites();
   const [favouriteItems, setFavouriteItems] = useState<FavouriteItem[]>([]);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
@@ -230,25 +220,27 @@ const FavouriteScreen = () => {
     }
 
     const selectedItems = favouriteItems.filter((item) => checkedItems.has(item.id));
-    
+
     try {
       const addPromises = selectedItems.map(async (item) => {
         const request = {
-          sanPhamId: item.sanPhamId, // Đảm bảo sanPhamId tồn tại
+          sanPhamId: item.sanPhamId, // Sử dụng sanPhamId để gọi API
           soLuong: 1, // Số lượng mặc định là 1
         };
 
         const success = await addToCart(request); // Gọi API để thêm vào DB
         if (success) {
-          const cartItem: CartItem = {
+          // Tạo đối tượng để truyền vào addToCartContext, đảm bảo có đủ các thuộc tính
+          const cartItemForContext: Omit<CartItem, 'quantity'> & { quantity?: number } = {
             id: item.id,
+            sanPhamId: item.sanPhamId, // Thêm sanPhamId vì CartItem yêu cầu
             title: item.title,
             subtitle: item.subtitle,
             price: item.price,
             image: item.image,
-            quantity: 1,
+            quantity: 1, // quantity là tùy chọn
           };
-          addToCartContext(cartItem); // Cập nhật context
+          addToCartContext(cartItemForContext); // Truyền vào context
         }
         return success;
       });
@@ -410,8 +402,11 @@ const FavouriteScreen = () => {
 };
 
 const styles = StyleSheet.create({
+  // Định dạng cho container chính của màn hình
   container: { flex: 1, backgroundColor: '#EC870E' },
+  // Định dạng cho khu vực chứa nội dung chính
   myCart: { flex: 1 },
+  // Định dạng cho phần tiêu đề của màn hình
   header: {
     padding: 16,
     borderBottomWidth: 1,
@@ -421,8 +416,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     position: 'relative',
   },
+  // Định dạng cho khu vực chứa nút "Chọn tất cả"
   selectAllContainer: { flexDirection: 'row', alignItems: 'center', zIndex: 100 },
+  // Định dạng cho văn bản "Chọn tất cả"
   selectAllText: { fontSize: 16, marginLeft: 8, color: '#00676B' },
+  // Định dạng cho văn bản tiêu đề "Favourite"
   headerText: {
     fontSize: 30,
     fontWeight: 'bold',
@@ -431,8 +429,11 @@ const styles = StyleSheet.create({
     right: 0,
     textAlign: 'center',
   },
+  // Định dạng cho phần khoảng trống bên phải tiêu đề
   headerSpacer: { width: 100 },
+  // Định dạng cho danh sách sản phẩm yêu thích (có thể cuộn)
   cartItems: { padding: 16 },
+  // Định dạng cho từng mục sản phẩm trong danh sách yêu thích
   cartItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -453,7 +454,9 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     backgroundColor: '#FEEBD0',
   },
+  // Định dạng cho khu vực chứa checkbox
   checkboxContainer: { marginRight: 12 },
+  // Định dạng cho khu vực chứa ảnh sản phẩm
   imageContainer: {
     width: 64,
     height: 64,
@@ -468,13 +471,21 @@ const styles = StyleSheet.create({
     elevation: 3,
     marginRight: 12,
   },
+  // Định dạng cho ảnh sản phẩm
   image: { width: '100%', height: '100%', resizeMode: 'cover' },
+  // Định dạng cho khu vực chứa thông tin sản phẩm (tên, phụ đề)
   itemDetails: { flex: 1, marginRight: 12 },
+  // Định dạng cho tên sản phẩm
   itemName: { fontSize: 16, fontWeight: 'bold', marginBottom: 4 },
+  // Định dạng cho văn bản phụ đề của sản phẩm
   itemDetailsText: { color: 'gray', marginBottom: 8 },
+  // Định dạng cho khu vực chứa nút xóa và giá sản phẩm
   closeprice: { flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between', height: 80, marginRight: 12 },
+  // Định dạng cho nút xóa sản phẩm
   deleteButton: { padding: 8 },
+  // Định dạng cho văn bản giá sản phẩm
   price: { fontSize: 16, fontWeight: 'bold' },
+  // Định dạng cho khu vực chứa các nút hành động (Xóa, Thêm vào giỏ hàng)
   checkoutContainer: {
     position: 'absolute',
     bottom: 20,
@@ -492,6 +503,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#000',
   },
+  // Định dạng cho nút "Xóa các sản phẩm được chọn"
   deleteSelectedButton: {
     width: '100%',
     padding: 15,
@@ -505,7 +517,9 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 5,
   },
+  // Định dạng cho văn bản của nút "Xóa các sản phẩm được chọn"
   deleteSelectedButtonText: { color: 'white', fontSize: 18, fontWeight: 'bold' },
+  // Định dạng cho nút "Thêm vào giỏ hàng"
   checkoutButton: {
     width: '100%',
     padding: 15,
@@ -514,16 +528,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     maxWidth: 350,
   },
+  // Định dạng cho văn bản của nút "Thêm vào giỏ hàng"
   checkoutButtonText: { color: 'white', fontSize: 18, fontWeight: 'bold' },
+  // Định dạng cho lớp phủ (overlay) của modal
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'center', alignItems: 'center' },
+  // Định dạng cho container của modal
   modalContainer: { backgroundColor: 'white', padding: 20, borderRadius: 10, width: '80%', alignItems: 'center' },
+  // Định dạng cho văn bản trong modal
   modalText: { fontSize: 18, marginBottom: 20, textAlign: 'center' },
+  // Định dạng cho khu vực chứa các nút trong modal
   modalButtons: { flexDirection: 'row', justifyContent: 'space-between', width: '100%' },
+  // Định dạng cơ bản cho các nút trong modal
   modalButton: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: 5, width: '45%', alignItems: 'center' },
+  // Định dạng cho nút "Xác nhận" trong modal
   confirmButton: { backgroundColor: '#ff4444' },
+  // Định dạng cho nút "Hủy" trong modal
   cancelButton: { backgroundColor: '#ccc' },
+  // Định dạng cho văn bản của các nút trong modal
   modalButtonText: { color: 'white', fontSize: 16 },
+  // Định dạng cho khu vực hiển thị khi danh sách yêu thích trống
   emptyCart: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 16 },
+  // Định dạng cho văn bản thông báo khi danh sách yêu thích trống
   emptyCartText: { fontSize: 18, color: '#6B7280' },
 });
 

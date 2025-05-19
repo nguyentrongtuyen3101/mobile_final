@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,81 +7,104 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-} from "react-native";
-import { Ionicons, FontAwesome, FontAwesome5 } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { useCart } from "../contexts/CartContext"; // Thay useGioHang bằng useCart
-import { useUser } from "../contexts/UserContext";
-import IP_ADDRESS from "../../ipv4";
+  ActivityIndicator,
+} from 'react-native';
+import { Ionicons, FontAwesome, FontAwesome5 } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import SanPhamService from '../../services/sanphamservice';
+import baseurl from '../../baseurl';
 
 // Định nghĩa kiểu cho props (nếu có)
-interface Props {}
+interface Props { }
 
 // Định nghĩa kiểu cho item trong section
 interface Item {
-  id: number;
+  id: number; // Thêm id
   title: string;
   subtitle: string;
   price: string;
   image: any;
 }
 
+interface LoaiSanPham {
+  id: number;
+  tenLoai: string;
+  donVi: string;
+  duongDanAnh: string;
+}
+
+interface Product {
+  id: number;
+  tenSanPham: string;
+  moTa: string;
+  giaTien: number;
+  duongDanAnh: string;
+  soLuong: number;
+  donVi: string;
+}
+
 const App: React.FC<Props> = () => {
   const router = useRouter();
-  const { addToCart } = useCart(); // Thay useGioHang bằng useCart
-  const { user } = useUser();
+  const [categories, setCategories] = useState<LoaiSanPham[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [categoryItems, setCategoryItems] = useState<Record<number, Item[]>>({});
 
-  console.log("User ID:", user?.id);
+  // Lấy danh mục và sản phẩm
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const loaiSanPhamList = await SanPhamService.getAllLoaiSanPham();
+        const firstThreeCategories = loaiSanPhamList.slice(0, 3); // Lấy 3 danh mục đầu tiên
 
-  const handleAddToCart = async (item: Item) => {
-    if (!user) {
-      alert("Vui lòng đăng nhập để thêm sản phẩm vào giỏ hàng!");
-      router.push("/login");
-      return;
-    }
+        // Lấy sản phẩm cho từng danh mục (tối đa 5 sản phẩm)
+        const itemsMap: Record<number, Item[]> = {};
+        for (const category of firstThreeCategories) {
+          const products = await SanPhamService.getSanPhamByIdLoai(category.id);
+          const limitedProducts = products.slice(0, 5); // Giới hạn 5 sản phẩm
+          itemsMap[category.id] = limitedProducts.map(product => ({
+            id: product.id,
+            title: product.tenSanPham,
+            subtitle: `${product.soLuong} ${product.donVi}`,
+            price: `$${product.giaTien}`,
+            image: { uri: `${baseurl}${product.duongDanAnh}` },
+          }));
+        }
 
-    const cartData = {
-      accountId: parseInt(user.id),
-      sanPhamId: item.id,
-      soLuong: 1,
+        setCategories(firstThreeCategories);
+        setCategoryItems(itemsMap);
+      } catch (error) {
+        console.error('Lỗi khi lấy dữ liệu:', error);
+      } finally {
+        setLoading(false);
+      }
     };
 
+    fetchData();
+  }, []);
+
+  // Hàm xử lý khi nhấn vào sản phẩm để lấy chi tiết và chuyển hướng
+  const handleProductPress = async (item: Item) => {
     try {
-      const response = await fetch(`http://${IP_ADDRESS}:8080/API_for_mobile/api/checkmobile/themgiohang`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
+      const productDetail = await SanPhamService.getSanPhamById(item.id);
+      router.push({
+        pathname: "/productdetail",
+        params: {
+          id: productDetail.id.toString(), // Truyền id để trang chi tiết có thể lấy lại nếu cần
+          title: productDetail.tenSanPham,
+          price: `$${productDetail.giaTien}`,
+          image: `${baseurl}${productDetail.duongDanAnh}`, // Truyền URL ảnh
+          subtitle: `${productDetail.soLuong} ${productDetail.donVi}`,
+          description: productDetail.moTa, // Thêm mô tả nếu cần
         },
-        body: JSON.stringify(cartData),
       });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`Lỗi khi gọi API thêm giỏ hàng: ${response.status} - ${errorText}`);
-        throw new Error(`Không thể thêm vào giỏ hàng: ${errorText}`);
-      }
-
-      const result = await response.json();
-      console.log("Thêm vào giỏ hàng thành công:", result);
-
-      const productData = {
-        id: item.id,
-        title: item.title,
-        subtitle: item.subtitle,
-        price: item.price,
-        image: item.image,
-        quantity: result.soLuong,
-      };
-      addToCart(productData); // Thay addToGioHang bằng addToCart
-
-      alert("Đã thêm sản phẩm vào giỏ hàng!");
-    } catch (err: any) {
-      console.error("Lỗi khi thêm vào giỏ hàng:", err);
-      alert(`Lỗi khi thêm vào giỏ hàng: ${err.message}`);
+    } catch (error) {
+      console.error('Lỗi khi lấy chi tiết sản phẩm:', error);
+      alert('Không thể lấy chi tiết sản phẩm. Vui lòng thử lại sau.');
     }
   };
 
-  const renderSection = (title: string, items: Item[]) => {
+  const renderSection = (title: string, items: Item[], idLoai: number) => {
     return (
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
@@ -89,10 +112,10 @@ const App: React.FC<Props> = () => {
           <TouchableOpacity
             onPress={() =>
               router.push({
-                pathname: "/allproduct",
+                pathname: "/category",
                 params: {
                   title,
-                  items: JSON.stringify(items),
+                  idLoai: idLoai.toString(),
                 },
               })
             }
@@ -107,30 +130,15 @@ const App: React.FC<Props> = () => {
               <TouchableOpacity
                 key={index}
                 style={styles.card}
-                onPress={() =>
-                  router.push({
-                    pathname: "/productdetail",
-                    params: {
-                      id: item.id,
-                      title: item.title,
-                      price: item.price,
-                      image: item.title,
-                      subtitle: item.subtitle,
-                    },
-                  })
-                }
+                onPress={() => handleProductPress(item)} // Gọi hàm lấy chi tiết sản phẩm
               >
-                <Image source={item.image} style={styles.cardImage} />
+                <View style={styles.imageFrame}>
+                  <Image source={item.image} style={styles.cardImage} />
+                </View>
                 <Text style={styles.cardTitle}>{item.title}</Text>
                 <Text style={styles.cardSubtitle}>{item.subtitle}</Text>
                 <View style={styles.cardFooter}>
                   <Text style={styles.cardPrice}>{item.price}</Text>
-                  <TouchableOpacity
-                    style={styles.addButton}
-                    onPress={() => handleAddToCart(item)}
-                  >
-                    <Ionicons name="add" size={20} color="white" />
-                  </TouchableOpacity>
                 </View>
               </TouchableOpacity>
             ))}
@@ -140,197 +148,122 @@ const App: React.FC<Props> = () => {
     );
   };
 
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <ActivityIndicator size="large" color="#4CAF50" />
+      </View>
+    );
+  }
+
   return (
     <ScrollView style={styles.container}>
+      {/* Header */}
       <View style={styles.header}>
         <View>
           <FontAwesome5 name="carrot" size={40} color="orange" />
         </View>
-        <Text style={styles.textHeader}>
-          Store Groceries {user ? ` - Welcome ${user.gmail}` : ""}
-        </Text>
+        <Text style={styles.textHeader}>Store Groceries</Text>
       </View>
 
-      {renderSection("Exclusive Offer", [
-        {
-          id: 1,
-          title: "Organic Bananas",
-          subtitle: "7pcs",
-          price: "$4.99",
-          image: require("../../assets/images/banana.png"),
-        },
-        {
-          id: 2,
-          title: "Red Apple",
-          subtitle: "1kg",
-          price: "$4.99",
-          image: require("../../assets/images/apple.png"),
-        },
-        {
-          id: 2,
-          title: "Red Apple",
-          subtitle: "1kg",
-          price: "$4.99",
-          image: require("../../assets/images/apple.png"),
-        },
-      ])}
-
-      {renderSection("Best Selling", [
-        {
-          id: 3,
-          title: "Bell Pepper Red",
-          subtitle: "1kg",
-          price: "$4.99",
-          image: require("../../assets/images/bell_pepper.png"),
-        },
-        {
-          id: 4,
-          title: "Ginger",
-          subtitle: "250gm",
-          price: "$4.99",
-          image: require("../../assets/images/ginger.png"),
-        },
-      ])}
-
-      {renderSection("Groceries", [
-        {
-          id: 5,
-          title: "Beef Bone",
-          subtitle: "1kg",
-          price: "$4.99",
-          image: require("../../assets/images/beefBone.png"),
-        },
-        {
-          id: 6,
-          title: "Broiler Chicken",
-          subtitle: "1kg",
-          price: "$4.99",
-          image: require("../../assets/images/boiler_chicken.png"),
-        },
-      ])}
+      {/* Sections */}
+      {categories.map((category) => (
+        renderSection(category.tenLoai, categoryItems[category.id] || [], category.id)
+      ))}
     </ScrollView>
   );
 };
 
-const imageMap: Record<string, any> = {
-  "Organic Bananas": require("../../assets/images/banana.png"),
-  "Red Apple": require("../../assets/images/apple.png"),
-  "Bell Pepper Red": require("../../assets/images/bell_pepper.png"),
-  "Ginger": require("../../assets/images/ginger.png"),
-  "Beef Bone": require("../../assets/images/beefBone.png"),
-  "Broiler Chicken": require("../../assets/images/boiler_chicken.png"),
-};
-
 const styles = StyleSheet.create({
   textHeader: {
-    fontSize: 20,
-    fontWeight: "bold",
+    fontSize: 20, // Kích thước chữ của tiêu đề
+    fontWeight: "bold", // Chữ in đậm
   },
   section: {
-    marginBottom: 20,
+    marginBottom: 20, // Khoảng cách dưới của mỗi section
   },
   sectionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    marginBottom: 10,
+    flexDirection: "row", // Sắp xếp theo hàng ngang
+    justifyContent: "space-between", // Căn đều hai bên
+    alignItems: "center", // Căn giữa theo chiều dọc
+    paddingHorizontal: 16, // Khoảng cách hai bên trái-phải
+    marginBottom: 10, // Khoảng cách dưới của tiêu đề section
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
+    fontSize: 18, // Kích thước chữ tiêu đề section
+    fontWeight: "bold", // Chữ in đậm
   },
   sectionLink: {
-    color: "#4CAF50",
-    fontSize: 14,
+    color: "#006241", // Màu chữ của liên kết "See all"
+    fontSize: 16, // Kích thước chữ liên kết
   },
   cardContainer: {
-    flexDirection: "row",
-    paddingHorizontal: 16,
+    flexDirection: "row", // Sắp xếp các card theo hàng ngang
+    paddingHorizontal: 16, // Khoảng cách hai bên trái-phả
   },
   card: {
-    width: 150,
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    marginRight: 10,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#ddd",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    width: 150, // Chiều rộng của card sản phẩm
+    backgroundColor: "#FFFBD1", // Màu nền trắng
+    borderRadius: 10, // Bo góc card
+    marginRight: 10, // Khoảng cách bên phải giữa các card
+    alignItems: "center", // Căn giữa nội dung trong card
+    borderWidth: 1, // Độ dày viền
+    borderColor: "#000", // Màu viền
+    shadowColor: "#000", // Màu bóng
+    shadowOffset: { width: 0, height: 2 }, // Độ lệch bóng
+    shadowOpacity: 0.1, // Độ mờ bóng
+    shadowRadius: 4, // Bán kính bóng
+    elevation: 3, // Độ cao bóng (dành cho Android)
+    borderBottomWidth:3,
+    borderRightWidth:3,
+  },
+  imageFrame: {
+    width: 120, // Chiều rộng cố định của khung ảnh
+    height: 100, // Chiều cao cố định của khung ảnh
+    borderWidth: 1, // Độ dày viền khung ảnh
+    borderColor: "#000", // Màu viền khung ảnh
+    borderRadius: 5, // Bo góc khung ảnh
+    overflow: "hidden", // Ẩn phần ảnh thừa ra ngoài khung
+    marginTop: 10, // Khoảng cách trên của khung ảnh
   },
   cardImage: {
-    width: 80,
-    height: 80,
-    resizeMode: "contain",
+    width: "100%", // Chiều rộng ảnh chiếm toàn bộ khung
+    height: "100%", // Chiều cao ảnh chiếm toàn bộ khung
+    resizeMode: "cover", // Chế độ hiển thị ảnh: lấp đầy khung, giữ tỷ lệ và cắt nếu cần
   },
   cardTitle: {
-    fontSize: 14,
-    fontWeight: "bold",
-    marginTop: 5,
+    fontSize: 20, // Kích thước chữ tiêu đề sản phẩm
+    fontWeight: "bold", // Chữ in đậm
+    marginTop: 5, // Khoảng cách trên của tiêu đề
   },
   cardSubtitle: {
-    fontSize: 12,
-    color: "gray",
+    fontSize: 12, // Kích thước chữ phụ đề
+    color: "gray", // Màu chữ xám
   },
   cardFooter: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 10,
-    width: "100%",
+    flexDirection: "row", // Sắp xếp nội dung footer theo hàng ngang
+    justifyContent: "space-between", // Căn đều hai bên
+    alignItems: "center", // Căn giữa theo chiều dọc
+    marginTop: 10, // Khoảng cách trên của footer
+    width: "100%", // Chiều rộng toàn bộ card
   },
   cardPrice: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#333",
-    marginBottom: 10,
-    marginLeft: 10,
+    fontSize: 16, // Kích thước chữ giá sản phẩm
+    fontWeight: "bold", // Chữ in đậm
+    color: "#333", // Màu chữ
+    marginBottom: 10, // Khoảng cách dưới
+    marginLeft: 10, // Khoảng cách bên trái
   },
-  addButton: {
-    backgroundColor: "#4CAF50",
-    padding: 5,
-    borderRadius: 5,
-    marginBottom: 10,
-    marginRight: 10,
+  container: { 
+    flex: 1, // Chiếm toàn bộ không gian
+    backgroundColor: '#EC870E', // Màu nền trắng
+    padding: 16 // Khoảng cách bên trong
   },
-  container: { flex: 1, backgroundColor: "white", padding: 16 },
-  header: {
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 16,
+  header: { 
+    justifyContent: 'space-between', // Căn đều hai bên
+    alignItems: 'center', // Căn giữa theo chiều dọc
+    marginBottom: 16 // Khoảng cách dưới của header
   },
-  location: { flexDirection: "row", alignItems: "center" },
-  locationText: { marginLeft: 4, color: "black" },
-  icons: { flexDirection: "row", alignItems: "center" },
-  searchContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#f0f0f0",
-    borderRadius: 25,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginBottom: 16,
-  },
-  searchIcon: { marginRight: 8 },
-  searchInput: { flex: 1 },
-  bannerContainer: { position: "relative", marginBottom: 16 },
-  bannerImage: { width: "100%", height: 200, borderRadius: 10 },
-  bannerOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: "center",
-    alignItems: "center",
-    borderRadius: 10,
-  },
-  bannerTitle: { color: "black", fontSize: 20, fontWeight: "bold" },
-  bannerSubtitle: { color: "green", fontSize: 14 },
 });
 
 export default App;

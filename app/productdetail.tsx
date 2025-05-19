@@ -149,6 +149,7 @@ const ProductPage: React.FC = () => {
       if (success) {
         const productData = {
           id: product.id,
+          sanPhamId: product.id, // Thêm sanPhamId để khớp với kiểu CartItem
           title: product.tenSanPham,
           subtitle: `${product.soLuong} items`,
           price: `$${product.giaTien}`,

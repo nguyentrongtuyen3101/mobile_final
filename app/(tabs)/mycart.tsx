@@ -16,12 +16,10 @@ import { FontAwesome, AntDesign } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useCart } from '../contexts/CartContext';
 import { useUser } from '../contexts/UserContext';
-import { getCartItems, removeFromCart ,CartItem} from '../../services/muasamservice';
+import { getCartItems, removeFromCart, CartItem } from '../../services/muasamservice';
 import { addOrder, findDiscount, Order, OrderDetail, Discount } from '../../services/orderService';
 import { showAccount } from '../../services/authService';
-
-// Định nghĩa kiểu cho CartItem
-
+import SanPhamService from '../../services/sanphamservice';
 
 // Định nghĩa kiểu cho thông tin khách hàng
 interface CustomerInfo {
@@ -41,6 +39,16 @@ interface CartItemProps {
 
 const CartItemComponent: React.FC<CartItemProps> = ({ item, onRemove, onUpdateQuantity, onToggleCheckbox, checked }) => {
   const price = parseFloat(item.price.replace('$', '')) * item.quantity;
+  const [stock, setStock] = useState<number | null>(null);
+
+  // Lấy số lượng tồn kho khi render
+  useEffect(() => {
+    const fetchStock = async () => {
+      const stock = await getProductStock(item.sanPhamId);
+      setStock(stock);
+    };
+    fetchStock();
+  }, [item.sanPhamId]);
 
   return (
     <View style={styles.cartItem}>
@@ -63,6 +71,9 @@ const CartItemComponent: React.FC<CartItemProps> = ({ item, onRemove, onUpdateQu
       <View style={styles.itemDetails}>
         <Text style={styles.itemName}>{item.title}</Text>
         <Text style={styles.itemDetailsText}>{item.subtitle}</Text>
+        {stock !== null && (
+          <Text style={styles.stockText}>Tồn kho: {stock}</Text>
+        )}
         <View style={styles.quantityControl}>
           <TouchableOpacity
             style={styles.quantityButton}
@@ -100,6 +111,24 @@ const CartItemComponent: React.FC<CartItemProps> = ({ item, onRemove, onUpdateQu
       </View>
     </View>
   );
+};
+
+// Cache để lưu số lượng tồn kho
+const stockCache = new Map<number, number>();
+
+// Hàm lấy số lượng tồn kho
+const getProductStock = async (sanPhamId: number): Promise<number> => {
+  if (stockCache.has(sanPhamId)) {
+    return stockCache.get(sanPhamId)!;
+  }
+  try {
+    const product = await SanPhamService.getSanPhamById(sanPhamId);
+    stockCache.set(sanPhamId, product.soLuong);
+    return product.soLuong;
+  } catch (error) {
+    console.error(`Lỗi khi lấy số lượng tồn kho cho sản phẩm ${sanPhamId}:`, error);
+    return 0;
+  }
 };
 
 const App = () => {
@@ -219,6 +248,20 @@ const App = () => {
   const handleUpdateQuantity = async (id: number, newQuantity: number) => {
     if (newQuantity < 1) return;
 
+    // Tìm sản phẩm trong giỏ hàng
+    const item = cartItems.find((item) => item.id === id);
+    if (!item) return;
+
+    // Lấy số lượng tồn kho
+    const stock = await getProductStock(item.sanPhamId);
+
+    // Kiểm tra số lượng mới có vượt quá tồn kho không
+    if (newQuantity > stock) {
+      Alert.alert('Lỗi', `Số lượng vượt quá tồn kho. Chỉ còn ${stock} sản phẩm.`);
+      return;
+    }
+
+    // Cập nhật số lượng nếu hợp lệ
     setCartItems((prevItems) =>
       prevItems.map((item) =>
         item.id === id ? { ...item, quantity: newQuantity } : item
@@ -320,69 +363,82 @@ const App = () => {
   };
 
   const handlePayment = async () => {
-  if (checkedItems.size === 0) {
-    Alert.alert('Lỗi', 'Vui lòng chọn ít nhất một sản phẩm để thanh toán.');
-    return;
-  }
-  if (!recipientInfo.name || !recipientInfo.phone || !recipientInfo.address) {
-    Alert.alert('Lỗi', 'Vui lòng điền đầy đủ thông tin người nhận.');
-    return;
-  }
-
-  try {
-    const order: Order = {
-      idAccount: user?.id ? parseInt(user.id) : undefined,
-      idDiscount: discountId,
-      hoTen: recipientInfo.name,
-      sdt: recipientInfo.phone,
-      diachigiaohang: recipientInfo.address,
-      phuongthucthanhtoan: paymentMethod === 'Cash' ? true : false,
-      tongtien: totalCost,
-      status: 0,
-    };
-
-    const orderDetails: OrderDetail[] = cartItems
-      .filter((item) => checkedItems.has(item.id))
-      .map((item) => {
-        const price = parseFloat(item.price.replace('$', ''));
-        if (isNaN(price)) {
-          throw new Error(`Giá sản phẩm không hợp lệ cho sản phẩm ID: ${item.sanPhamId}`);
-        }
-        return {
-          idOrder: undefined,
-          idSanpham: item.sanPhamId, // Sử dụng sanPhamId
-          soluong: item.quantity,
-          giatien: price,
-          tongtiensanpham: price * item.quantity,
-        };
-      });
-
-    if (orderDetails.length === 0) {
-      Alert.alert('Lỗi', 'Không có chi tiết đơn hàng để gửi.');
+    if (checkedItems.size === 0) {
+      Alert.alert('Lỗi', 'Vui lòng chọn ít nhất một sản phẩm để thanh toán.');
+      return;
+    }
+    if (!recipientInfo.name || !recipientInfo.phone || !recipientInfo.address) {
+      Alert.alert('Lỗi', 'Vui lòng điền đầy đủ thông tin người nhận.');
       return;
     }
 
-    console.log('Order:', order);
-    console.log('OrderDetails:', orderDetails);
+    // Kiểm tra số lượng tồn kho cho tất cả sản phẩm được chọn
+    for (const id of checkedItems) {
+      const item = cartItems.find((item) => item.id === id);
+      if (!item) continue;
 
-    await addOrder({ order, orderDetails });
+      const stock = await getProductStock(item.sanPhamId);
+      if (item.quantity > stock) {
+        Alert.alert('Lỗi', `Sản phẩm ${item.title} vượt quá tồn kho. Chỉ còn ${stock} sản phẩm.`);
+        return;
+      }
+    }
 
-    const deletePromises = Array.from(checkedItems).map((id) => removeFromCart(id));
-    await Promise.all(deletePromises);
+    try {
+      const order: Order = {
+        idAccount: user?.id ? parseInt(user.id) : undefined,
+        idDiscount: discountId,
+        hoTen: recipientInfo.name,
+        sdt: recipientInfo.phone,
+        diachigiaohang: recipientInfo.address,
+        phuongthucthanhtoan: paymentMethod === 'Cash' ? true : false,
+        tongtien: totalCost,
+        status: 0,
+      };
 
-    setCartItems((prevItems) => prevItems.filter((item) => !checkedItems.has(item.id)));
-    setCheckedItems(new Set());
-    setPaymentStatus('success');
-    setShowCheckout(false);
+      const orderDetails: OrderDetail[] = cartItems
+        .filter((item) => checkedItems.has(item.id))
+        .map((item) => {
+          const price = parseFloat(item.price.replace('$', ''));
+          if (isNaN(price)) {
+            throw new Error(`Giá sản phẩm không hợp lệ cho sản phẩm ID: ${item.sanPhamId}`);
+          }
+          return {
+            idOrder: undefined,
+            idSanpham: item.sanPhamId,
+            soluong: item.quantity,
+            giatien: price,
+            tongtiensanpham: price * item.quantity,
+          };
+        });
 
-    router.push('/orderaccept');
-  } catch (error) {
-    console.error('Lỗi khi tạo đơn hàng:', error);
-    setPaymentStatus('failed');
-    setShowError(true);
-    Alert.alert('Lỗi', error instanceof Error ? error.message : 'Không thể tạo đơn hàng');
-  }
-};
+      if (orderDetails.length === 0) {
+        Alert.alert('Lỗi', 'Không có chi tiết đơn hàng để gửi.');
+        return;
+      }
+
+      console.log('Order:', order);
+      console.log('OrderDetails:', orderDetails);
+
+      await addOrder({ order, orderDetails });
+
+      const deletePromises = Array.from(checkedItems).map((id) => removeFromCart(id));
+      await Promise.all(deletePromises);
+
+      setCartItems((prevItems) => prevItems.filter((item) => !checkedItems.has(item.id)));
+      setCheckedItems(new Set());
+      setPaymentStatus('success');
+      setShowCheckout(false);
+
+      router.push('/orderaccept');
+    } catch (error) {
+      console.error('Lỗi khi tạo đơn hàng:', error);
+      setPaymentStatus('failed');
+      setShowError(true);
+      Alert.alert('Lỗi', error instanceof Error ? error.message : 'Không thể tạo đơn hàng');
+    }
+  };
+
   const handleTryAgain = () => {
     setShowError(false);
     setPaymentStatus('pending');
@@ -702,479 +758,369 @@ const App = () => {
 };
 
 const styles = StyleSheet.create({
-  // Container chính của màn hình
   container: {
-    flex: 1, // Chiếm toàn bộ không gian
-    backgroundColor: '#EC870E', // Màu nền cam
+    flex: 1,
+    backgroundColor: '#EC870E',
   },
-
-  // Phần hiển thị giỏ hàng với hiệu ứng mờ khi mở modal
   myCart: {
-    flex: 1, // Chiếm toàn bộ không gian còn lại
+    flex: 1,
   },
-
-  // Header của màn hình giỏ hàng
   header: {
-    padding: 16, // Khoảng cách bên trong
-    borderBottomWidth: 1, // Độ dày viền dưới
-    borderBottomColor: '#945305', // Màu viền dưới (màu nâu đậm)
-    flexDirection: 'row', // Sắp xếp theo hàng ngang
-    alignItems: 'center', // Căn giữa theo chiều dọc
-    justifyContent: 'space-between', // Căn đều hai bên
-    position: 'relative', // Để căn giữa tiêu đề
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#945305',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    position: 'relative',
   },
-
-  // Container của nút "Select All"
   selectAllContainer: {
-    flexDirection: 'row', // Sắp xếp ngang
-    alignItems: 'center', // Căn giữa theo chiều dọc
-    zIndex: 100, // Đảm bảo hiển thị trên cùng
+    flexDirection: 'row',
+    alignItems: 'center',
+    zIndex: 100,
   },
-
-  // Văn bản "Select All"
   selectAllText: {
-    fontSize: 16, // Kích thước chữ
-    marginLeft: 8, // Khoảng cách từ biểu tượng checkbox
-    color: '#333', // Màu chữ xám đậm
+    fontSize: 16,
+    marginLeft: 8,
+    color: '#333',
   },
-
-  // Tiêu đề "My Cart" ở header
   headerText: {
-    fontSize: 30, // Kích thước chữ lớn
-    fontWeight: 'bold', // Chữ đậm
-    position: 'absolute', // Đặt vị trí tuyệt đối để canh giữa
-    left: 0, // Bắt đầu từ lề trái
-    right: 0, // Kéo dài đến lề phải
-    textAlign: 'center', // Căn giữa văn bản
+    fontSize: 30,
+    fontWeight: 'bold',
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    textAlign: 'center',
   },
-
-  // Khoảng cách giả để cân đối header
   headerSpacer: {
-    width: 100, // Chiều rộng để tạo không gian trống
+    width: 100,
   },
-
-  // Danh sách các mục trong giỏ hàng
   cartItems: {
-    padding: 16, // Khoảng cách bên trong
+    padding: 16,
   },
-
-  // Mỗi mục sản phẩm trong giỏ hàng
   cartItem: {
-    flexDirection: 'row', // Sắp xếp các thành phần theo hàng ngang
-    alignItems: 'center', // Căn giữa theo chiều dọc
-    justifyContent: 'space-between', // Căn đều các phần tử
-    paddingVertical: 12, // Khoảng cách dọc
-    paddingHorizontal: 16, // Khoảng cách ngang
-    borderBottomWidth: 1, // Độ dày viền dưới
-    borderBottomColor: '#e0e0e0', // Màu viền dưới (xám nhạt)
-    shadowColor: '#000', // Màu bóng
-    shadowOffset: { width: 0, height: 2 }, // Độ lệch bóng
-    shadowOpacity: 0.1, // Độ mờ bóng
-    shadowRadius: 4, // Bán kính bóng
-    elevation: 3, // Độ nâng (cho Android)
-    borderWidth: 1, // Độ dày viền
-    borderColor: '#e0e0e0', // Màu viền (xám nhạt)
-    borderRadius: 8, // Bo góc
-    marginBottom: 8, // Khoảng cách dưới
-    backgroundColor: '#FEEBD0', // Màu nền (màu cam nhạt)
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 8,
+    marginBottom: 8,
+    backgroundColor: '#FEEBD0',
   },
-
-  // Container của checkbox
   checkboxContainer: {
-    marginRight: 12, // Khoảng cách từ hình ảnh sản phẩm
+    marginRight: 12,
   },
-
-  // Container của hình ảnh sản phẩm
   imageContainer: {
-    width: 64, // Chiều rộng
-    height: 64, // Chiều cao
-    borderRadius: 8, // Bo góc
-    borderWidth: 1, // Độ dày viền
-    borderColor: '#e0e0e0', // Màu viền (xám nhạt)
-    overflow: 'hidden', // Ẩn phần hình ảnh tràn ra ngoài
-    shadowColor: '#000', // Màu bóng
-    shadowOffset: { width: 0, height: 2 }, // Độ lệch bóng
-    shadowOpacity: 0.2, // Độ mờ bóng
-    shadowRadius: 4, // Bán kính bóng
-    elevation: 3, // Độ nâng (cho Android)
-    marginRight: 12, // Khoảng cách từ chi tiết sản phẩm
+    width: 64,
+    height: 64,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+    marginRight: 12,
   },
-
-  // Hình ảnh sản phẩm
   image: {
-    width: '100%', // Chiếm toàn bộ chiều rộng container
-    height: '100%', // Chiếm toàn bộ chiều cao container
-    resizeMode: 'cover', // Hình ảnh được cắt để vừa khung
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
   },
-
-  // Container chi tiết sản phẩm
   itemDetails: {
-    flex: 1, // Chiếm toàn bộ không gian còn lại
-    marginRight: 12, // Khoảng cách từ phần giá
+    flex: 1,
+    marginRight: 12,
   },
-
-  // Tên sản phẩm
   itemName: {
-    fontSize: 16, // Kích thước chữ
-    fontWeight: 'bold', // Chữ đậm
-    marginBottom: 4, // Khoảng cách dưới
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 4,
   },
-
-  // Mô tả sản phẩm
   itemDetailsText: {
-    color: 'gray', // Màu chữ xám
-    marginBottom: 8, // Khoảng cách dưới
+    color: 'gray',
+    marginBottom: 8,
   },
-
-  // Container điều khiển số lượng (tăng/giảm)
+  stockText: {
+    color: '#FF0000',
+    fontSize: 14,
+    marginTop: 4,
+  },
   quantityControl: {
-    flexDirection: 'row', // Sắp xếp ngang
-    alignItems: 'center', // Căn giữa theo chiều dọc
-    marginTop: 0, // Không có khoảng cách trên
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 0,
   },
-
-  // Nút tăng/giảm số lượng
   quantityButton: {
-    width: 32, // Chiều rộng
-    height: 32, // Chiều cao
-    borderWidth: 1, // Độ dày viền
-    borderColor: '#e0e0e0', // Màu viền (xám nhạt)
-    borderRadius: 16, // Bo góc tròn (hình tròn)
-    alignItems: 'center', // Căn giữa nội dung
-    justifyContent: 'center', // Căn giữa nội dung
-    marginHorizontal: 8, // Khoảng cách ngang giữa các nút
+    width: 32,
+    height: 32,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 8,
   },
-
-  // Văn bản trong nút tăng/giảm
   quantityButtonText: {
-    fontSize: 16, // Kích thước chữ
+    fontSize: 16,
   },
-
-  // Văn bản hiển thị số lượng
   quantityText: {
-    marginHorizontal: 8, // Khoảng cách ngang
-    fontSize: 16, // Kích thước chữ
+    marginHorizontal: 8,
+    fontSize: 16,
   },
-
-  // Container giá và nút xóa
   closeprice: {
-    flexDirection: 'column', // Sắp xếp dọc
-    alignItems: 'center', // Căn giữa theo chiều ngang
-    justifyContent: 'space-between', // Căn đều các phần tử
-    height: 80, // Chiều cao cố định
-    marginRight: 12, // Khoảng cách từ lề phải
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    height: 80,
+    marginRight: 12,
   },
-
-  // Nút xóa sản phẩm
   deleteButton: {
-    padding: 8, // Khoảng cách bên trong
+    padding: 8,
   },
-
-  // Giá sản phẩm
   price: {
-    fontSize: 16, // Kích thước chữ
-    fontWeight: 'bold', // Chữ đậm
+    fontSize: 16,
+    fontWeight: 'bold',
   },
-
-  // Container nút thanh toán và xóa
   checkoutContainer: {
-    position: 'absolute', // Đặt vị trí tuyệt đối
-    bottom: 20, // Cách lề dưới 20px
-    left: 15, // Cách lề trái 15px
-    right: 15, // Cách lề phải 15px
-    backgroundColor: '#008080', // Màu nền (xanh lam đậm)
-    padding: 10, // Khoảng cách bên trong
-    borderRadius: 25, // Bo góc
-    shadowColor: '#000', // Màu bóng
-    shadowOffset: { width: 0, height: 4 }, // Độ lệch bóng
-    shadowOpacity: 0.3, // Độ mờ bóng
-    shadowRadius: 6, // Bán kính bóng
-    elevation: 10, // Độ nâng (cho Android)
-    alignItems: 'center', // Căn giữa theo chiều ngang
+    position: 'absolute',
+    bottom: 20,
+    left: 15,
+    right: 15,
+    backgroundColor: '#008080',
+    padding: 10,
+    borderRadius: 25,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 10,
+    alignItems: 'center',
   },
-
-  // Nút xóa các sản phẩm được chọn
   deleteSelectedButton: {
-    width: '100%', // Chiếm toàn bộ chiều rộng
-    padding: 15, // Khoảng cách bên trong
-    backgroundColor: '#ff4444', // Màu nền (đỏ)
-    borderRadius: 25, // Bo góc
-    alignItems: 'center', // Căn giữa nội dung
-    marginBottom: 10, // Khoảng cách dưới
-    shadowColor: '#000', // Màu bóng
-    shadowOffset: { width: 0, height: 4 }, // Độ lệch bóng
-    shadowOpacity: 0.3, // Độ mờ bóng
-    shadowRadius: 6, // Bán kính bóng
-    elevation: 5, // Độ nâng (cho Android)
+    width: '100%',
+    padding: 15,
+    backgroundColor: '#ff4444',
+    borderRadius: 25,
+    alignItems: 'center',
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 5,
   },
-
-  // Văn bản trong nút xóa
   deleteSelectedButtonText: {
-    color: 'white', // Màu chữ trắng
-    fontSize: 18, // Kích thước chữ
-    fontWeight: 'bold', // Chữ đậm
+    color: 'white',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
-
-  // Nút "Go to Checkout"
   checkoutButton: {
-    width: '100%', // Chiếm toàn bộ chiều rộng
-    padding: 15, // Khoảng cách bên trong
-    backgroundColor: '#006241', // Màu nền (xanh đậm)
-    borderRadius: 25, // Bo góc
-    flexDirection: 'row', // Sắp xếp ngang
-    justifyContent: 'space-between', // Căn đều hai bên
-    maxWidth: 350, // Chiều rộng tối đa
+    width: '100%',
+    padding: 15,
+    backgroundColor: '#006241',
+    borderRadius: 25,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    maxWidth: 350,
   },
-
-  // Văn bản "Go to Checkout"
   checkoutButtonText: {
-    color: 'white', // Màu chữ trắng
-    fontSize: 18, // Kích thước chữ
-    paddingLeft: 20, // Khoảng cách lề trái
+    color: 'white',
+    fontSize: 18,
+    paddingLeft: 20,
   },
-
-  // Container giá trong nút checkout
   checkoutPrice: {
-    backgroundColor: 'darkgreen', // Màu nền (xanh đậm)
-    paddingVertical: 6, // Khoảng cách dọc
-    paddingHorizontal: 12, // Khoảng cách ngang
-    borderRadius: 6, // Bo góc
-    width: '35%', // Chiều rộng
-    alignItems: 'center', // Căn giữa nội dung
+    backgroundColor: 'darkgreen',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    width: '35%',
+    alignItems: 'center',
   },
-
-  // Văn bản giá trong nút checkout
   checkoutPriceText: {
-    color: 'white', // Màu chữ trắng
-    fontSize: 16, // Kích thước chữ
-    textAlign: 'center', // Căn giữa văn bản
+    color: 'white',
+    fontSize: 16,
+    textAlign: 'center',
   },
-
-  // Overlay cho modal (lớp phủ mờ)
   overlay: {
-    ...StyleSheet.absoluteFillObject, // Chiếm toàn bộ màn hình
-    backgroundColor: 'rgba(0,0,0,0.5)', // Màu nền mờ (đen, độ mờ 50%)
-    justifyContent: 'center', // Căn giữa theo chiều dọc
-    alignItems: 'center', // Căn giữa theo chiều ngang
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-
-  // Hàng ngang trong form checkout
   row: {
-    flexDirection: 'row', // Sắp xếp ngang
-    justifyContent: 'space-between', // Căn đều hai bên
-    alignItems: 'center', // Căn giữa theo chiều dọc
-    borderBottomWidth: 1, // Độ dày viền dưới
-    borderBottomColor: '#e5e7eb', // Màu viền dưới (xám nhạt)
-    paddingVertical: 15, // Khoảng cách dọc
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+    paddingVertical: 15,
   },
-
-  // Nhãn (label) trong form checkout
   label: {
-    color: '#006241', // Màu chữ (xanh đậm)
-    fontSize: 20, // Kích thước chữ
-    width: 120, // Chiều rộng cố định
+    color: '#006241',
+    fontSize: 20,
+    width: 120,
   },
-
-  // Phần cuối hàng (giá trị hoặc nút)
   rowEnd: {
-    flexDirection: 'row', // Sắp xếp ngang
-    alignItems: 'center', // Căn giữa theo chiều dọc
-    flex: 1, // Chiếm toàn bộ không gian còn lại
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
   },
-
-  // Giá trị (như phương thức thanh toán)
   value: {
-    color: '#181725', // Màu chữ (đen đậm)
-    marginRight: 10, // Khoảng cách từ biểu tượng mũi tên
-    fontSize: 16, // Kích thước chữ
+    color: '#181725',
+    marginRight: 10,
+    fontSize: 16,
   },
-
-  // Trường nhập liệu trong form
   input: {
-    backgroundColor: '#E6F1D8', // Màu nền (xanh nhạt)
-    paddingHorizontal: 10, // Khoảng cách ngang bên trong
-    paddingVertical: 5, // Khoảng cách dọc bên trong
-    borderRadius: 5, // Bo góc
-    fontSize: 14, // Kích thước chữ
-    flex: 1, // Chiếm toàn bộ không gian còn lại
-    marginLeft: 10, // Khoảng cách từ nhãn
-    borderWidth: 1, // Độ dày viền
-    borderColor: '#000', // Màu viền (đen)
+    backgroundColor: '#E6F1D8',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 5,
+    fontSize: 14,
+    flex: 1,
+    marginLeft: 10,
+    borderWidth: 1,
+    borderColor: '#000',
   },
-
-  // Văn bản "Apply" cho mã giảm giá
   applyText: {
-    color: '#367517', // Màu chữ (xanh lá đậm)
-    fontWeight: 'bold', // Chữ đậm
-    fontSize: 16, // Kích thước chữ
-    paddingHorizontal: 10, // Khoảng cách ngang
+    color: '#367517',
+    fontWeight: 'bold',
+    fontSize: 16,
+    paddingHorizontal: 10,
   },
-
-  // Nút "Place Order" trong form checkout
   button: {
-    backgroundColor: '#EC870E', // Màu nền (xanh lá)
-    padding: 15, // Khoảng cách bên trong
-    borderRadius: 10, // Bo góc
-    alignItems: 'center', // Căn giữa nội dung
-    marginTop: 10, // Khoảng cách trên
-    borderColor:'#000',
-    borderWidth:1,
+    backgroundColor: '#EC870E',
+    padding: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginTop: 10,
+    borderColor: '#000',
+    borderWidth: 1,
   },
-
-  // Văn bản trong nút "Place Order"
   buttonText: {
-    color: 'white', // Màu chữ trắng
-    fontSize: 16, // Kích thước chữ
-    fontWeight: '600', // Độ đậm chữ
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
   },
-
-  // Overlay cho modal xác nhận
   modalOverlay: {
-    flex: 1, // Chiếm toàn bộ không gian
-    backgroundColor: 'rgba(0, 0, 0, 0.5)', // Màu nền mờ (đen, độ mờ 50%)
-    justifyContent: 'center', // Căn giữa theo chiều dọc
-    alignItems: 'center', // Căn giữa theo chiều ngang
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-
-  // Container của modal xác nhận
   modalContainer: {
-    backgroundColor: 'white', // Màu nền trắng
-    padding: 20, // Khoảng cách bên trong
-    borderRadius: 10, // Bo góc
-    width: '80%', // Chiều rộng 80% màn hình
-    alignItems: 'center', // Căn giữa nội dung
+    backgroundColor: 'white',
+    padding: 20,
+    borderRadius: 10,
+    width: '80%',
+    alignItems: 'center',
   },
-
-  // Văn bản trong modal xác nhận
   modalText: {
-    fontSize: 18, // Kích thước chữ
-    marginBottom: 20, // Khoảng cách dưới
-    textAlign: 'center', // Căn giữa văn bản
+    fontSize: 18,
+    marginBottom: 20,
+    textAlign: 'center',
   },
-
-  // Container các nút trong modal
   modalButtons: {
-    flexDirection: 'row', // Sắp xếp ngang
-    justifyContent: 'space-between', // Căn đều hai bên
-    width: '100%', // Chiếm toàn bộ chiều rộng
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
   },
-
-  // Nút trong modal (chung)
   modalButton: {
-    paddingVertical: 10, // Khoảng cách dọc
-    paddingHorizontal: 20, // Khoảng cách ngang
-    borderRadius: 5, // Bo góc
-    width: '45%', // Chiều rộng
-    alignItems: 'center', // Căn giữa nội dung
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 5,
+    width: '45%',
+    alignItems: 'center',
   },
-
-  // Nút "Confirm" trong modal
   confirmButton: {
-    backgroundColor: '#ff4444', // Màu nền (đỏ)
+    backgroundColor: '#ff4444',
   },
-
-  // Nút "Cancel" trong modal
   cancelButton: {
-    backgroundColor: '#ccc', // Màu nền (xám)
+    backgroundColor: '#ccc',
   },
-
-  // Văn bản trong nút modal
   modalButtonText: {
-    color: 'white', // Màu chữ trắng
-    fontSize: 16, // Kích thước chữ
+    color: 'white',
+    fontSize: 16,
   },
-
-  // Container khi giỏ hàng trống
   emptyCart: {
-    flex: 1, // Chiếm toàn bộ không gian
-    justifyContent: 'center', // Căn giữa theo chiều dọc
-    alignItems: 'center', // Căn giữa theo chiều ngang
-    padding: 16, // Khoảng cách bên trong
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
   },
-
-  // Văn bản khi giỏ hàng trống
   emptyCartText: {
-    fontSize: 18, // Kích thước chữ
-    color: '#6B7280', // Màu chữ (xám)
+    fontSize: 18,
+    color: '#6B7280',
   },
-
-  // Container biểu tượng trong modal lỗi
   iconContainer: {
-    position: 'relative', // Đặt vị trí tương đối
-    width: 150, // Chiều rộng
-    height: 150, // Chiều cao
-    justifyContent: 'center', // Căn giữa theo chiều dọc
-    alignItems: 'center', // Căn giữa theo chiều ngang
+    position: 'relative',
+    width: 150,
+    height: 150,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-
-  // Hình ảnh biểu tượng lỗi
   imageIcon: {
-    width: 130, // Chiều rộng
-    height: 120, // Chiều cao
-    marginLeft: 100, // Dịch sang phải
+    width: 130,
+    height: 120,
+    marginLeft: 100,
   },
-
-  // Tiêu đề trong modal lỗi
   title: {
-    fontSize: 24, // Kích thước chữ
-    fontWeight: '600', // Độ đậm chữ
-    color: '#1F2937', // Màu chữ (đen đậm)
-    marginBottom: 8, // Khoảng cách dưới
-    textAlign: 'center', // Căn giữa văn bản
+    fontSize: 24,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 8,
+    textAlign: 'center',
   },
-
-  // Phụ đề trong modal lỗi
   subtitle: {
-    fontSize: 16, // Kích thước chữ
-    color: '#4B5563', // Màu chữ (xám đậm)
-    marginBottom: 24, // Khoảng cách dưới
-    textAlign: 'center', // Căn giữa văn bản
+    fontSize: 16,
+    color: '#4B5563',
+    marginBottom: 24,
+    textAlign: 'center',
   },
-
-  // Liên kết "Back to home" trong modal lỗi
   linkText: {
-    color: 'black', // Màu chữ đen
-    fontWeight: 'bold', // Chữ đậm
-    fontSize: 16, // Kích thước chữ
-    marginTop: 16, // Khoảng cách trên
-    textAlign: 'center', // Căn giữa văn bản
+    color: 'black',
+    fontWeight: 'bold',
+    fontSize: 16,
+    marginTop: 16,
+    textAlign: 'center',
   },
-
-  // Container nút đóng modal lỗi
   closeIconContainer: {
-    alignSelf: 'flex-end', // Căn sang phải
-    marginBottom: 16, // Khoảng cách dưới
+    alignSelf: 'flex-end',
+    marginBottom: 16,
   },
-
-  // Giá trong form checkout
   cost: {
-    color: '#181725', // Màu chữ (đen đậm)
-    fontSize: 16, // Kích thước chữ
-    marginVertical: 2, // Khoảng cách dọc
+    color: '#181725',
+    fontSize: 16,
+    marginVertical: 2,
   },
-
-  // Container giá trong form
   costContainer: {
-    alignItems: 'flex-end', // Căn sang phải
+    alignItems: 'flex-end',
   },
-
-  // Nội dung trong form checkout
   content: {
-    marginBottom: 20, // Khoảng cách dưới
+    marginBottom: 20,
   },
-
-  // Thẻ chứa form checkout
   card: {
-    backgroundColor: 'white', // Màu nền trắng
-    width: 320, // Chiều rộng cố định
-    borderRadius: 20, // Bo góc
-    padding: 20, // Khoảng cách bên trong
-    shadowColor: '#000', // Màu bóng
-    shadowOffset: { width: 0, height: 2 }, // Độ lệch bóng
-    shadowOpacity: 0.2, // Độ mờ bóng
-    shadowRadius: 8, // Bán kính bóng
-    elevation: 5, // Độ nâng (cho Android)
+    backgroundColor: 'white',
+    width: 320,
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
   },
 });
 
-export default App;
+export default App;//hello final end game
